@@ -27,9 +27,10 @@ import os
 import logging
 import unittest
 from decimal import Decimal
-from service.models import Product, Category, db
+from service.models import Product, Category, db, DataValidationError
 from service import app
 from tests.factories import ProductFactory
+from unittest.mock import patch, MagicMock
 
 DATABASE_URI = os.getenv(
     "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/postgres"
@@ -61,6 +62,13 @@ class TestProductModel(unittest.TestCase):
         """This runs before each test"""
         db.session.query(Product).delete()  # clean up the last tests
         db.session.commit()
+        self.valid_data = {
+            "name": "Smartphone",
+            "description": "An electronic device",
+            "price": "999.99",
+            "available": True,
+            "category": "ELECTRONICS"
+        }
 
     def tearDown(self):
         """This runs after each test"""
@@ -69,6 +77,54 @@ class TestProductModel(unittest.TestCase):
     ######################################################################
     #  T E S T   C A S E S
     ######################################################################
+
+    def test_deserialize_incorrectInstanceData(self):
+        """It should raise an exception"""
+        product = ProductFactory()
+        data = self.valid_data.copy()
+        data["available"] = "not a boolean"
+        with self.assertRaises(DataValidationError):
+            product.deserialize(data)
+    
+    def test_deserialize_missing_name_field(self):
+        """It should raise an exception"""
+        product = ProductFactory()
+        data = self.valid_data.copy()
+        del data["name"]
+        with self.assertRaises(DataValidationError):
+            product.deserialize(data)
+
+    def test_deserialize_invalid_category(self):
+        """It should raise an exception"""
+        product = ProductFactory()
+        data = self.valid_data.copy()
+        data["category"] = "NON_EXISTENT_CATEGORY"
+        with self.assertRaises(DataValidationError):
+            product.deserialize(data)
+    
+    def test_deserialize_invalid_price_type(self):
+        """It should raise an exception"""
+        product = ProductFactory()
+        data = self.valid_data.copy()
+        data["price"] = "not a number"
+        with self.assertRaises(Exception):
+            product.deserialize(data)
+
+    def test_deserialize_invalidProduct(self):
+        """It should raise an exception"""
+        product = ProductFactory()
+        data = 1
+        with self.assertRaises(DataValidationError):
+            product.deserialize(data)
+
+    @patch('service.models.Product.query')
+    def test_find_by_price_with_invalid_string(self, mock_query):
+        # Set up
+        test_price = "invalid price"
+        
+        # Invocation and Assertion
+        with self.assertRaises(Exception):
+            Product.find_by_price(test_price)
 
     def test_create_a_product(self):
         """It should Create a product and assert that it exists"""
@@ -132,6 +188,12 @@ class TestProductModel(unittest.TestCase):
         self.assertEqual(len(products), 1)
         self.assertEqual(products[0].id, original_id)
         self.assertEqual(products[0].description, "testing")
+    
+    def test_update_a_product_no_id(self):
+        """It should raise an exception"""
+        product = ProductFactory()
+        product.id = None
+        self.assertRaises(DataValidationError, product.update); 
 
     def test_delete_a_product(self):
         """It should Delete a Product"""
